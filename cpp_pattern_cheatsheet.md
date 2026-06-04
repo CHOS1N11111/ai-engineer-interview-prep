@@ -1,7 +1,5 @@
 # C++ 手撕代码速查
 
-面试时建议默认说：我用 C++17，核心数据结构选 STL，复杂度按均摊或最坏情况说明。
-
 ## 常用头文件
 
 ```cpp
@@ -282,4 +280,3 @@ return dp[amount] > amount ? -1 : dp[amount];
 - 二分用 `mid = left + (right - left) / 2`。
 - 树节点值可能到 `INT_MIN/INT_MAX`，BST 上下界用 `long long`。
 - `priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>>` 是按 pair 字典序的小根堆。
-
