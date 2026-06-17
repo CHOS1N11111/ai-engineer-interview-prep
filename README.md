@@ -38,13 +38,10 @@ This repository is organized for AI application, AI Agent, and LLM engineering i
 
 1. Start with `mock_interview_drills.md`.
    Practice explaining the problem, writing the core C++ solution, and answering follow-up questions.
-
 2. Use `cpp_pattern_cheatsheet.md`.
    Review common C++ containers, linked list patterns, stack/queue, heap, binary search, DFS/BFS, and DP templates.
-
 3. Read `llm_ai_agent_interview_concepts.md`.
    Build interview-ready answers for LLM, RAG, Agent, ML, backend, frontend, networking, and systems questions.
-
 4. Use `hot100_cpp_solutions.cpp`.
    Compare your handwritten solutions with complete C++ implementations.
 
@@ -92,22 +89,3 @@ When solving an algorithm problem in an interview:
 - API design, auth, rate limiting, caching
 - TCP/IP, HTTP, HTTPS, CORS
 - Process, thread, coroutine, lock, deadlock, thread pool
-
-## GitHub Description
-
-Suggested repository description:
-
-```text
-AI engineer interview prep: C++ algorithms, LLMs, RAG, agents, ML, backend, frontend, networking, and OS basics.
-```
-
-## Notes
-
-The repository started as a LeetCode Hot 100 preparation folder and has grown into a broader AI engineering interview prep project.
-
-Current local folder name:
-
-```text
-ai_engineer_interview_prep
-```
-
