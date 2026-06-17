@@ -4976,7 +4976,313 @@ std::async
 - 下游服务可能被打爆。
 - 应该用线程池、异步 I/O、队列和限流控制并发。
 
-## 15. LLM 应用后端
+## 15. Docker / 部署
+
+这一章用于回答“你会不会把项目跑起来、部署起来、排查部署问题”。AI 应用研发面试里，Docker 经常和后端服务、向量数据库、Redis、模型服务一起问。
+
+### Docker 是什么
+
+Docker 是容器化工具，可以把应用和运行环境一起打包，保证在不同机器上运行结果一致。
+
+核心概念：
+
+- Image：镜像，应用运行环境的只读模板。
+- Container：容器，由镜像启动起来的运行实例。
+- Dockerfile：构建镜像的脚本。
+- Volume：数据挂载，用于持久化。
+- Network：容器网络，用于容器间通信。
+
+面试答法：
+
+> Docker 解决的是环境一致性和部署隔离问题。把代码、依赖和运行配置打包成镜像后，可以在开发、测试、生产环境中更稳定地运行。
+
+### 镜像和容器的区别
+
+镜像：
+
+- 静态模板。
+- 类似“安装包”。
+- 不能直接修改运行状态。
+
+容器：
+
+- 镜像运行起来后的进程。
+- 有自己的文件系统、网络和进程空间。
+- 可以启动、停止、删除。
+
+面试答法：
+
+> 镜像是静态的，容器是运行中的。一个镜像可以启动多个容器。
+
+### Dockerfile
+
+Dockerfile 用来定义如何构建镜像。
+
+Python 后端示例：
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+常见指令：
+
+- `FROM`：基础镜像。
+- `WORKDIR`：工作目录。
+- `COPY`：复制文件。
+- `RUN`：构建时执行命令。
+- `EXPOSE`：声明端口。
+- `CMD`：容器启动时默认命令。
+
+### Docker 常用命令
+
+构建镜像：
+
+```bash
+docker build -t my-app .
+```
+
+运行容器：
+
+```bash
+docker run -p 8000:8000 my-app
+```
+
+查看容器：
+
+```bash
+docker ps
+docker ps -a
+```
+
+查看日志：
+
+```bash
+docker logs -f container_name
+```
+
+进入容器：
+
+```bash
+docker exec -it container_name bash
+```
+
+停止和删除：
+
+```bash
+docker stop container_name
+docker rm container_name
+```
+
+### 端口映射
+
+容器内部服务监听自己的端口，宿主机需要通过端口映射访问。
+
+```bash
+docker run -p 8080:8000 my-app
+```
+
+含义：
+
+```text
+宿主机 8080 -> 容器 8000
+```
+
+面试答法：
+
+> 容器内部端口默认不等于外部可访问端口，需要通过 `-p host_port:container_port` 映射。
+
+### Volume 数据持久化
+
+容器删除后，容器内部文件通常也会丢失。数据库、上传文件、向量库索引需要挂载 volume。
+
+示例：
+
+```bash
+docker run -v ./data:/app/data my-app
+```
+
+AI 应用场景：
+
+- 持久化上传文件。
+- 持久化向量数据库数据。
+- 持久化模型缓存。
+- 保存日志。
+
+### 环境变量
+
+生产中不要把密钥写死在代码里，通常用环境变量传入。
+
+```bash
+docker run -e OPENAI_API_KEY=xxx my-app
+```
+
+Docker Compose 中：
+
+```yaml
+environment:
+  - OPENAI_API_KEY=${OPENAI_API_KEY}
+```
+
+注意：
+
+> API Key、数据库密码、JWT secret 不应该提交到 GitHub。
+
+### Docker Compose
+
+Docker Compose 用来编排多个容器。
+
+AI 应用常见组合：
+
+```text
+frontend
+backend
+postgres
+redis
+vector-db
+model-server
+```
+
+示例：
+
+```yaml
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+```
+
+面试答法：
+
+> 单个服务用 Docker 就够，多服务本地联调用 Docker Compose 更方便，比如后端、Redis、数据库、向量库一起启动。
+
+### 容器网络
+
+在同一个 Docker Compose 网络里，服务可以用服务名互相访问。
+
+例子：
+
+```text
+backend 访问 redis，不写 localhost，而写 redis:6379
+```
+
+常见坑：
+
+> 在容器里写 `localhost` 指的是容器自己，不是宿主机，也不是其他容器。
+
+### 部署一个 AI 应用的典型结构
+
+```text
+用户浏览器
+-> Nginx
+-> 前端静态资源
+-> 后端 API
+-> Redis / SQL / Vector DB
+-> 外部 LLM API 或本地模型服务
+```
+
+如果本地部署模型：
+
+```text
+backend -> model gateway -> vLLM/TGI -> GPU model
+```
+
+### Nginx
+
+Nginx 常用于：
+
+- 反向代理。
+- 静态文件服务。
+- HTTPS 终止。
+- 负载均衡。
+- 请求体大小限制。
+- 超时配置。
+
+反向代理直观理解：
+
+```text
+用户访问 https://example.com/api
+Nginx 转发到 backend:8000
+```
+
+面试答法：
+
+> Nginx 通常站在服务前面，负责转发请求、处理 HTTPS、服务静态资源和做基础负载均衡。
+
+### 部署时常见配置
+
+必须关注：
+
+- 端口。
+- 环境变量。
+- 数据库连接。
+- Redis 地址。
+- API Key。
+- 日志目录。
+- 上传文件目录。
+- 超时时间。
+- CORS。
+- HTTPS。
+
+### 服务启动失败怎么排查
+
+排查顺序：
+
+1. 看容器是否在运行：`docker ps -a`。
+2. 看日志：`docker logs`。
+3. 看端口映射是否正确。
+4. 看环境变量是否缺失。
+5. 看依赖服务是否启动，比如 Redis/DB。
+6. 进入容器检查文件和命令。
+7. 检查网络访问和 DNS。
+
+面试答法：
+
+> 部署排查先看进程和日志，再看端口、环境变量、依赖服务和网络。不要一上来就改代码。
+
+### AI 项目部署常见坑
+
+- API Key 写进代码，被提交到仓库。
+- 容器里用 `localhost` 访问另一个容器。
+- 没挂载 volume，数据随容器删除丢失。
+- 后端超时时间太短，LLM 还没返回就断开。
+- Nginx 没配置流式响应，SSE 被缓冲。
+- 上传文件大小超过 Nginx 限制。
+- Docker 镜像太大，构建和部署慢。
+- 没有健康检查和重启策略。
+
+### 面试开放题：如何部署一个 RAG 应用
+
+答题框架：
+
+1. 前端构建成静态资源，用 Nginx 托管。
+2. 后端 API 用 Docker 部署。
+3. Redis 做缓存、限流和任务状态。
+4. SQL 存用户、文档 metadata、权限。
+5. 向量数据库存 chunk embedding。
+6. 对接外部 LLM API 或本地 vLLM。
+7. 配置环境变量、日志、监控、HTTPS。
+8. 用 Docker Compose 或 Kubernetes 编排服务。
+
+## 16. LLM 应用后端
 
 ### 一个 LLM 应用后端通常包含什么
 
@@ -5058,7 +5364,7 @@ LLM 输出通常较慢，前端体验上会使用流式输出。
 
 > LLM 应用很难只靠传统日志定位问题，需要把 prompt、检索结果、工具调用链路和模型输出都关联起来看。
 
-## 16. 前端高频
+## 17. 前端高频
 
 ### Chat UI 关键点
 
@@ -5127,43 +5433,650 @@ SSE 示例思路：
 - 引用链接要做安全处理。
 - 敏感配置放后端。
 
-## 17. 数据库与存储
+## 18. 数据库 / SQL 深挖
 
-### SQL / NoSQL / Vector DB 怎么选
+这一章用于回答“你会不会设计和使用数据库”。AI 应用里 SQL 常用于用户、权限、文档 metadata、任务状态、对话记录、评估结果等结构化数据。
+
+### SQL / NoSQL / Vector DB / Object Storage 怎么选
 
 SQL：
 
-- 结构化数据
-- 事务
-- 用户、订单、权限、日志索引
+- 结构化数据。
+- 强事务。
+- 复杂查询。
+- 用户、权限、订单、文档 metadata、任务状态。
 
 NoSQL：
 
-- 灵活 schema
-- 会话、文档、半结构化数据
+- schema 灵活。
+- 半结构化数据。
+- 会话、日志、事件、JSON 文档。
 
 Vector DB：
 
-- 文档 chunk 向量
-- 语义检索
+- 存 embedding。
+- 做语义相似度检索。
+- RAG chunk 召回。
 
-对象存储：
+Object Storage：
 
-- 原始 PDF、图片、音频、上传文件
+- 存原始文件。
+- PDF、图片、音频、视频、模型文件。
 
 面试答法：
 
-> LLM 应用通常不是只用一种数据库。业务元数据放 SQL，原始文件放对象存储，向量放向量库，会话和缓存可以用 Redis 或文档数据库。
+> LLM 应用通常不是只用一种数据库。用户权限和任务状态放 SQL，原始文件放对象存储，向量放向量库，缓存和限流用 Redis。
 
-### Redis 常用场景
+### 关系型数据库
 
-- 限流
-- 缓存
-- session
-- 分布式锁
-- 任务队列辅助
+关系型数据库用表组织数据，表之间可以通过主键、外键建立关系。
 
-## 18. 评估 Eval
+常见数据库：
+
+- MySQL。
+- PostgreSQL。
+- SQLite。
+
+适合：
+
+- 用户系统。
+- 权限系统。
+- 交易数据。
+- 文档 metadata。
+- 需要事务一致性的业务。
+
+### 表设计
+
+设计表时要考虑：
+
+- 主键。
+- 字段类型。
+- 是否允许为空。
+- 默认值。
+- 索引。
+- 唯一约束。
+- 创建时间和更新时间。
+
+文档表例子：
+
+```sql
+CREATE TABLE documents (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    storage_url TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+```
+
+### 主键和外键
+
+主键：
+
+- 唯一标识一行数据。
+- 不能重复。
+- 通常不可为空。
+
+外键：
+
+- 表示表之间的关联。
+- 例如 `documents.user_id` 对应 `users.id`。
+
+工程注意：
+
+> 外键能保证一致性，但在高并发或复杂分库场景中，有些团队会用应用层保证关系，减少数据库约束成本。
+
+### 索引
+
+索引用于加速查询。
+
+直观理解：
+
+> 没有索引时，数据库可能要全表扫描；有索引时，可以像查字典一样快速定位数据。
+
+常见索引：
+
+- B+Tree 索引。
+- 哈希索引。
+- 唯一索引。
+- 联合索引。
+- 全文索引。
+
+常见建索引字段：
+
+- `user_id`
+- `document_id`
+- `created_at`
+- `status`
+- 经常作为 where 条件的字段。
+- join 字段。
+
+面试答法：
+
+> 索引能提升查询速度，但会增加写入成本和存储成本。不是索引越多越好，要根据查询模式设计。
+
+### B+Tree 为什么常用于数据库索引
+
+B+Tree 特点：
+
+- 多叉树，高度低。
+- 叶子节点有序。
+- 适合范围查询。
+- 磁盘 IO 次数少。
+
+面试答法：
+
+> 数据库索引常用 B+Tree，因为它高度低、磁盘 IO 少，而且叶子节点有序，适合范围查询和排序。
+
+### 联合索引和最左前缀
+
+联合索引：
+
+```sql
+CREATE INDEX idx_user_status_time ON documents(user_id, status, created_at);
+```
+
+可以有效支持：
+
+```sql
+WHERE user_id = ?
+WHERE user_id = ? AND status = ?
+WHERE user_id = ? AND status = ? ORDER BY created_at
+```
+
+不一定有效支持：
+
+```sql
+WHERE status = ?
+```
+
+面试答法：
+
+> 联合索引遵循最左前缀原则，查询条件要从索引最左列开始连续使用，才能更好命中索引。
+
+### 索引失效常见情况
+
+可能导致索引失效：
+
+- 对索引字段使用函数。
+- 左模糊匹配，如 `LIKE '%abc'`。
+- 隐式类型转换。
+- OR 条件使用不当。
+- 不符合联合索引最左前缀。
+- 数据量太小，优化器选择全表扫描。
+
+例子：
+
+```sql
+WHERE DATE(created_at) = '2026-06-17'
+```
+
+可能不如：
+
+```sql
+WHERE created_at >= '2026-06-17'
+  AND created_at < '2026-06-18'
+```
+
+### SQL 查询基础
+
+常见语法：
+
+```sql
+SELECT id, title
+FROM documents
+WHERE user_id = 1
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+聚合：
+
+```sql
+SELECT status, COUNT(*)
+FROM documents
+GROUP BY status;
+```
+
+Join：
+
+```sql
+SELECT d.title, u.name
+FROM documents d
+JOIN users u ON d.user_id = u.id;
+```
+
+### JOIN
+
+常见 JOIN：
+
+- INNER JOIN：只返回两边都匹配的数据。
+- LEFT JOIN：保留左表全部数据，右表没有则为 NULL。
+- RIGHT JOIN：保留右表全部数据。
+
+面试答法：
+
+> INNER JOIN 取交集，LEFT JOIN 保留左表。实际业务里 LEFT JOIN 常用于“即使没有关联数据，也要保留主表记录”。
+
+### 事务 ACID
+
+事务四大特性：
+
+- Atomicity 原子性：要么都成功，要么都失败。
+- Consistency 一致性：事务前后数据满足约束。
+- Isolation 隔离性：并发事务互不干扰。
+- Durability 持久性：提交后数据不会丢。
+
+面试答法：
+
+> 事务保证一组操作作为整体执行，比如扣库存和创建订单必须一起成功或一起失败。
+
+### 事务隔离级别
+
+常见隔离级别：
+
+- Read Uncommitted：可能脏读。
+- Read Committed：避免脏读。
+- Repeatable Read：避免不可重复读，MySQL 默认常见。
+- Serializable：最高隔离，性能最低。
+
+常见问题：
+
+- 脏读：读到别人未提交的数据。
+- 不可重复读：同一行两次读取结果不同。
+- 幻读：同一范围两次查询行数不同。
+
+面试答法：
+
+> 隔离级别越高，一致性越强，但并发性能越低。工程里要在正确性和性能之间权衡。
+
+### 慢查询优化
+
+排查思路：
+
+1. 看慢查询 SQL。
+2. 用 `EXPLAIN` 看执行计划。
+3. 检查是否走索引。
+4. 检查扫描行数。
+5. 检查 join 顺序和条件。
+6. 优化索引或 SQL。
+7. 必要时做分页、缓存、归档。
+
+常见优化：
+
+- 建合适索引。
+- 避免 `SELECT *`。
+- 避免深分页。
+- 拆分复杂查询。
+- 热点数据缓存到 Redis。
+
+### EXPLAIN
+
+`EXPLAIN` 用于查看 SQL 执行计划。
+
+常看字段：
+
+- type：访问类型。
+- key：使用了哪个索引。
+- rows：预计扫描行数。
+- Extra：额外信息，如 Using filesort。
+
+面试答法：
+
+> SQL 慢时不能凭感觉改，先用 EXPLAIN 看是否走索引、扫描多少行、有没有 filesort 或临时表。
+
+### 分页
+
+普通分页：
+
+```sql
+SELECT *
+FROM documents
+ORDER BY id
+LIMIT 20 OFFSET 10000;
+```
+
+问题：
+
+> OFFSET 很大时，数据库仍然要跳过很多行，深分页会慢。
+
+优化：
+
+```sql
+SELECT *
+FROM documents
+WHERE id > last_id
+ORDER BY id
+LIMIT 20;
+```
+
+这种叫游标分页或 keyset pagination。
+
+### 数据库在 AI 应用中的表
+
+常见表：
+
+- users：用户。
+- conversations：会话。
+- messages：消息。
+- documents：上传文档。
+- chunks：文档切片 metadata。
+- tasks：异步任务。
+- evaluations：评估结果。
+- feedback：用户反馈。
+- api_usage：token 和成本统计。
+
+面试答法：
+
+> RAG 系统里向量库存 embedding，但 SQL 仍然很重要，用来存文档 metadata、权限、任务状态、会话记录和用户反馈。
+
+### SQL 和向量库如何配合
+
+常见设计：
+
+```text
+SQL documents 表：doc_id、owner、权限、标题、状态
+SQL chunks 表：chunk_id、doc_id、页码、文本摘要
+Vector DB：chunk_id、embedding、metadata
+Object Storage：原始文件
+```
+
+查询时：
+
+1. 根据用户权限确定可访问 doc_id。
+2. 向量检索时加 metadata filter。
+3. 召回 chunk_id。
+4. 回 SQL 查标题、页码、来源等信息。
+
+## 19. Redis / 缓存
+
+Redis 是内存数据库，常用于缓存、限流、session、分布式锁、任务状态和排行榜。AI 应用里 Redis 很常见，因为 LLM 调用慢且贵，很多中间结果值得缓存。
+
+### Redis 为什么快
+
+主要原因：
+
+- 数据在内存中。
+- 单线程事件循环避免复杂锁竞争。
+- I/O 多路复用。
+- 数据结构实现高效。
+
+面试答法：
+
+> Redis 快主要因为基于内存和高效事件模型。单线程不代表慢，反而避免了多线程锁竞争。
+
+### Redis 常用数据结构
+
+String：
+
+- 缓存普通值。
+- 计数器。
+- token 用量。
+
+Hash：
+
+- 存对象字段。
+- 用户信息、任务状态。
+
+List：
+
+- 简单队列。
+- 消息列表。
+
+Set：
+
+- 去重集合。
+- 用户权限集合。
+
+Sorted Set：
+
+- 排行榜。
+- 按分数排序的任务。
+
+Bitmap / HyperLogLog：
+
+- 统计类场景。
+
+### 缓存基本模式
+
+Cache Aside，旁路缓存：
+
+```text
+读请求 -> 先查 Redis
+命中 -> 返回
+未命中 -> 查数据库 -> 写 Redis -> 返回
+```
+
+写请求：
+
+```text
+先更新数据库，再删除缓存
+```
+
+面试答法：
+
+> 常见缓存模式是 Cache Aside。读时先查缓存，未命中再查数据库并回填；写时通常更新数据库后删除缓存，避免旧数据残留。
+
+### 过期时间 TTL
+
+缓存通常要设置过期时间：
+
+```bash
+SET key value EX 3600
+```
+
+原因：
+
+- 防止缓存无限增长。
+- 避免长期返回旧数据。
+- 自动清理不常用 key。
+
+AI 应用例子：
+
+- embedding 缓存可以较长。
+- 用户会话缓存中等。
+- 临时任务状态可设置短 TTL。
+
+### 缓存穿透
+
+缓存穿透是查询一个缓存和数据库都不存在的数据，导致请求每次都打到数据库。
+
+解决：
+
+- 缓存空值。
+- 布隆过滤器。
+- 参数校验。
+
+例子：
+
+> 恶意用户不断查不存在的 document_id，如果不缓存空结果，会一直打数据库。
+
+### 缓存击穿
+
+缓存击穿是某个热点 key 过期，瞬间大量请求打到数据库。
+
+解决：
+
+- 热点 key 不过期或逻辑过期。
+- 加互斥锁，只让一个请求回源。
+- 提前异步刷新。
+
+### 缓存雪崩
+
+缓存雪崩是大量 key 同时过期，导致数据库瞬间压力暴增。
+
+解决：
+
+- 过期时间加随机抖动。
+- 分批过期。
+- 多级缓存。
+- 限流和降级。
+
+### 缓存一致性
+
+难点：
+
+> 数据库和缓存是两个系统，很难保证强一致。
+
+常见做法：
+
+- 更新数据库后删除缓存。
+- 缓存设置 TTL。
+- 对强一致要求高的数据，不使用缓存或缩短缓存时间。
+
+面试答法：
+
+> 缓存通常追求最终一致。工程上常用“更新数据库后删除缓存 + TTL”来降低不一致风险。
+
+### 分布式锁
+
+Redis 可以用 `SET NX EX` 实现简单分布式锁：
+
+```bash
+SET lock_key request_id NX EX 10
+```
+
+含义：
+
+- `NX`：不存在才设置。
+- `EX`：设置过期时间，防止死锁。
+
+释放锁时要确认 value 是自己的 request_id，避免误删别人的锁。
+
+注意：
+
+> 分布式锁要小心锁超时、误删锁、任务执行超过过期时间等问题。复杂场景可以考虑 Redlock 或更可靠的协调系统。
+
+### Redis 限流
+
+常见限流算法：
+
+- 固定窗口。
+- 滑动窗口。
+- 令牌桶。
+- 漏桶。
+
+AI 应用场景：
+
+- 用户每分钟最多请求多少次。
+- 每天最多使用多少 tokens。
+- 单个 tenant 最大并发数。
+
+简单计数器：
+
+```text
+INCR user:123:minute:202606171230
+EXPIRE 60
+```
+
+### Redis 做任务状态
+
+长任务适合异步化：
+
+```text
+POST /tasks -> 返回 task_id
+worker 后台处理
+GET /tasks/{id} -> 查询状态
+```
+
+Redis 可存：
+
+- pending
+- running
+- success
+- failed
+- progress
+- error message
+
+AI 场景：
+
+- 文档解析。
+- embedding 入库。
+- 批量评估。
+- 长 Agent 任务。
+
+### Redis 做 LLM 缓存
+
+可缓存：
+
+- embedding 结果。
+- query rewrite 结果。
+- RAG 检索结果。
+- rerank 结果。
+- 高频问答结果。
+- 用户 session 摘要。
+
+缓存 key 设计：
+
+```text
+model_name + prompt_version + hash(input) + params
+```
+
+注意：
+
+- 私有数据不能跨用户共享。
+- prompt 或模型版本变化后缓存要失效。
+- 结构化输出要缓存解析后的结果或原始结果都可以，但要明确。
+
+### Redis 持久化
+
+Redis 是内存数据库，但支持持久化。
+
+RDB：
+
+- 定期快照。
+- 恢复快。
+- 可能丢最近数据。
+
+AOF：
+
+- 记录写命令。
+- 数据更完整。
+- 文件可能更大。
+
+面试答法：
+
+> Redis 常用作缓存时，丢一点数据可以接受；如果存任务状态或重要数据，就要考虑持久化和恢复策略。
+
+### Redis 淘汰策略
+
+当内存满了，需要淘汰 key。
+
+常见策略：
+
+- noeviction：不淘汰，写入报错。
+- allkeys-lru：所有 key 中淘汰最近最少使用。
+- volatile-lru：只淘汰设置了过期时间的 key。
+- allkeys-random：随机淘汰。
+
+面试答法：
+
+> Redis 作为缓存时常用 LRU 类策略，但关键业务状态不能随便被淘汰，要和普通缓存分开设计。
+
+### Redis 常见工程坑
+
+- 大 key 导致阻塞。
+- 热 key 导致单点压力高。
+- 缓存没有 TTL，内存爆。
+- 把 Redis 当强一致数据库使用。
+- 分布式锁没有过期时间。
+- 删除锁时不校验 owner。
+- 缓存 key 没有版本，模型/prompt 更新后还命中旧结果。
+
+### 面试开放题：AI 应用里 Redis 怎么用
+
+答题框架：
+
+1. 缓存 embedding 和检索结果，降低成本。
+2. 存 session 和临时任务状态。
+3. 做用户级限流和 token quota。
+4. 做分布式锁，避免重复处理同一文档。
+5. 对热点问题缓存答案。
+6. 设置 TTL、权限隔离和版本化 key。
+
+## 20. 评估 Eval
 
 ### 为什么 LLM 应用需要评估
 
@@ -5215,7 +6128,7 @@ Vector DB：
 - 需要明确 rubric。
 - 最好配合人工抽检。
 
-## 19. 安全与合规
+## 21. 安全与合规
 
 ### 常见安全风险
 
@@ -5240,7 +6153,7 @@ RAG 场景尤其重要：
 
 > 企业 RAG 最容易出问题的是权限。向量检索时必须把权限过滤放在后端和数据库查询层，不能先全库召回再交给模型判断。
 
-## 20. 性能与成本
+## 22. 性能与成本
 
 ### 影响延迟的因素
 
@@ -5270,7 +6183,7 @@ RAG 场景尤其重要：
 - 控制重试次数。
 - 对长文档先摘要再问答。
 
-## 21. 前后端联调常见接口
+## 23. 前后端联调常见接口
 
 ### Chat 接口
 
@@ -5321,7 +6234,7 @@ RAG 场景尤其重要：
 - `GET /tasks/{id}` 查询状态。
 - 状态包括 pending、running、success、failed。
 
-## 22. 项目面试讲法
+## 24. 项目面试讲法
 
 ### RAG 项目怎么讲
 
@@ -5353,7 +6266,7 @@ RAG 场景尤其重要：
 
 > 我做的 Agent 不是简单聊天，而是让模型根据用户目标拆解任务、选择工具、执行并根据结果继续决策。工程上重点处理了工具 schema、参数校验、最大步数、错误恢复和关键操作确认。
 
-## 23. 高频开放题
+## 25. 高频开放题
 
 ### 如何降低 LLM 幻觉？
 
@@ -5407,7 +6320,7 @@ RAG 场景尤其重要：
 - 收集用户反馈。
 - 出问题能快速回滚。
 
-## 24. 面试速背清单
+## 26. 面试速背清单
 
 必须能讲清楚：
 
@@ -5431,3 +6344,6 @@ RAG 场景尤其重要：
 - TCP/UDP 区别、三次握手、四次挥手。
 - HTTP 方法、状态码、Header、HTTPS、CORS。
 - SSE 和 WebSocket 区别。
+- Docker 镜像、容器、Dockerfile、Compose、volume、端口映射。
+- SQL 索引、事务、隔离级别、JOIN、EXPLAIN、慢查询优化。
+- Redis 数据结构、缓存穿透/击穿/雪崩、分布式锁、限流。
