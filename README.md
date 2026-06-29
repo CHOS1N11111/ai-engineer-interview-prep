@@ -190,4 +190,3 @@ permission filtering, hallucination control, latency, and evaluation.
 [ ] HTTP / SSE / WebSocket / CORS
 [ ] Docker / SQL / Redis / concurrency
 ```
-
